@@ -254,7 +254,7 @@ class WithFilterBacktester:
                 # 停損/停利/AI決策/超時
                 stop_loss = current_return < 0.92  # -8% 停損
                 ai_sell = action[0] == 1
-                timeout = hold_days >= 120
+                timeout = hold_days >= 240
                 should_sell = ai_sell or stop_loss or timeout
                 
                 if should_sell:

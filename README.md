@@ -13,7 +13,11 @@
   - Fine-tune Buy: 500,000
   - Fine-tune Sell: 500,000
 
-- 更新sell agent的reward function
+- 更新sell agent的條件 (模型訓練和回測檔案要修改)
+  1. 120天的持倉限制提高為240天
+  2. sell agent 最佳步數: 
+    pre train: 約 320K-640K 步之間 (看圖是40萬步)
+    fine tune: 560,000
 
 -只重新訓練sell agent的方式
 # 只刪除 Sell Agent 模型

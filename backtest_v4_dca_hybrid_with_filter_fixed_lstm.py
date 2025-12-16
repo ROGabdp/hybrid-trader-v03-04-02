@@ -425,7 +425,7 @@ class DCAHybridBacktester:
                 log_entry = {'date': date, 'status': 'holding', 'price': price, 'sell_conf': sell_conf, 'buy_conf': 0, 'action': 'hold'}
                 self.daily_confidence.append(log_entry)
                 
-                if action[0] == 1 or current_return < 0.92 or hold_days >= 120:
+                if action[0] == 1 or current_return < 0.92 or hold_days >= 240:
                     log_entry['action'] = 'SELL'
                     proceeds = ai_position['shares'] * price
                     profit = proceeds - ai_position['cost']
@@ -619,7 +619,7 @@ class SharedPoolBacktester:
                 log_entry = {'date': date, 'status': 'holding', 'price': price, 'sell_conf': sell_conf, 'buy_conf': 0, 'action': 'hold'}
                 self.daily_confidence.append(log_entry)
                 
-                if action[0] == 1 or current_return < 0.92 or hold_days >= 120:
+                if action[0] == 1 or current_return < 0.92 or hold_days >= 240:
                     log_entry['action'] = 'SELL'
                     proceeds = pos['shares'] * price
                     profit = proceeds - pos['cost']

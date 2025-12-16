@@ -621,10 +621,10 @@ class SellEnvHybrid(gym.Env):
             close_prices = df['Close'].values.astype(np.float32)
             
             for idx in buy_indices:
-                if idx + 120 < len(df):
-                    episode_prices = close_prices[idx:idx+120]
+                if idx + 240 < len(df):
+                    episode_prices = close_prices[idx:idx+240]
                     self.episodes.append({
-                        'features': feature_data[idx:idx+120],
+                        'features': feature_data[idx:idx+240],
                         'returns': episode_prices / episode_prices[0]
                     })
         
@@ -640,7 +640,7 @@ class SellEnvHybrid(gym.Env):
         current_return = self.current_episode['returns'][self.day]
         is_profitable = current_return >= 1.10
         
-        if action == 1 or self.day >= 119:
+        if action == 1 or self.day >= 239:
             max_ret = np.max(self.current_episode['returns'])
             if is_profitable:
                 reward = 1.0 + (current_return - 1.10) / (max_ret - 1.10) if max_ret > 1.10 else 1.0
@@ -652,8 +652,8 @@ class SellEnvHybrid(gym.Env):
             self.day += 1
             done = False
         
-        obs = np.concatenate([self.current_episode['features'][min(self.day, 119)], 
-                              [self.current_episode['returns'][min(self.day, 119)]]]).astype(np.float32)
+        obs = np.concatenate([self.current_episode['features'][min(self.day, 239)], 
+                              [self.current_episode['returns'][min(self.day, 239)]]]).astype(np.float32)
         return obs, reward, done, False, {}
 
 

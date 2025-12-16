@@ -260,7 +260,7 @@ class NoFilterBacktester:
                 
                 stop_loss = current_return < 0.92
                 ai_sell = action[0] == 1
-                timeout = hold_days >= 120
+                timeout = hold_days >= 240
                 should_sell = ai_sell or stop_loss or timeout
                 
                 if should_sell:
