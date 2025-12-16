@@ -4,102 +4,23 @@
 
 # v03-04-02 更新
 
-- 修改 ptrl_hybrid_system.py 中的 reward function
-  - 情境	新 Reward
-  - 買對 (action=1, 漲幅≥10%)	+2.0
-  - 買錯 (action=1, 漲幅<10%)	-0.5
-  - 错过好机会 (action=0, 漲幅≥10%)	-1.0
-  - 正確迴避 (action=0, 漲幅<10%)	+0.5
+- 獨立 Agent 檢查：Buy 和 Sell 模型分開檢查是否存在
+- 使用最佳模型：訓練結束後複製 best_model.zip 為 base.zip / final.zip
 
-- 後續訓練步數設定:
-  - Pre-train Buy: 1,000,000 (舊)
-  - Pre-train Sell: 500,000 (舊)
-  - Fine-tune Buy: 1,000,000 (新)
-  - Fine-tune Sell: 500,000 (新)
+- 訓練步數設定:
+  - Pre-train Buy: 1,000,000
+  - Pre-train Sell: 1,000,000
+  - Fine-tune Buy: 500,000
+  - Fine-tune Sell: 500,000
 
-- 獨立控制 Buy/Sell Agent Fine-tune 的功能：因為調整過的reward效果不錯，但buy agent需要更多的fine tune步數。(修改程式碼，可以只重跑buy agent的fine tune)
+- 更新sell agent的reward function
 
-  現在的設定:
-  Buy Agent Fine-tune: 1,000,000 步 (已更新)
-  Sell Agent Fine-tune: 500,000 步
-      如何只重跑 Buy Agent Fine-tune
-      powershell
-      # 1. 只刪除 Buy Agent 的 Fine-tune 模型
-      Remove-Item .\models_hybrid_v4\ppo_buy_twii_final.zip
-      Remove-Item .\models_hybrid_v4\best_tuned\buy\*.zip -ErrorAction SilentlyContinue
-      # 2. 執行訓練腳本 (會自動偵測並只訓練 Buy Agent)
-      python train_v4_models.py
-      程式會顯示：
-
-      [Check] Step C: Fine-tuning status
-        Buy Final:  ❌ Missing
-        Sell Final: ✅ Done
-      然後只執行 Buy Agent 的 Fine-tune，跳過 Sell Agent。
-
-- 找出了調整過的buy agent reward function之後，最佳的Fine-tune步數
-    Best Model 步數: 1,841,472
-    Pre-train 步數:  1,000,000
-    ─────────────────────────
-    Fine-tune 步數:    841,472 步 (約 84 萬步)
-
-- 新增 backtest_v4_dca_hybrid_with_filter_rolling_lstm.py，方便我比較有無濾網的dca + hybrid 的差異 (start 2為主)。
-    指標	        With Filter	No Filter	  差異
-    Total Return	27.37%	    23.44%	    +3.93% 📈
-    Annualized	  29.27%	    25.04%	    +4.23%
-    Max Drawdown	-14.40%	    -19.14%	    +4.74% (風險更低)
-    AI Trades	    13	        27	        交易更少
-    AI Win Rate	  61.5%	      40.7%	      +20.8%
-    DCA 倉	      7	          4	          更多 DCA
-
-    關鍵差異
-    - 濾網版本只在 Donchian 突破 時允許 AI 買入
-    - 減少草率買入 → 勝率更高
-    - Max DD 降低 → 風險更小
-    - DCA 有更多資金可用
-    
-    關鍵結論: 有濾網的比較適合我的交易風格。即便sharp ratio稍微低一點(相較於沒有濾網的 3.19，有濾網的稍低但仍有 2.83)，且總報酬率高，勝率高，總損失小。
-
-- 後續實作了可以讀取 回測持倉狀態 的 盤中daily_ops_v4_intraday_fixed_lstm.py，且採用了固定的LSTM  backtest_v4_dca_hybrid_with_filter_fixed_lstm.py 以確保每日回測的結果一致。因此建議的操作流程簡化如下:
-      📅 每日例行公事
-      🌙 盤後（收盤後執行）
-      
-      # Step 1: 執行回測 (更新持倉到今天)
-      python backtest_v4_dca_hybrid_with_filter_fixed_lstm.py --start 2025-12-09
-      
-      這會：
-      下載最新股價資料
-      用固定 LSTM 執行回測
-      輸出今日的持倉狀態和操作建議
-      更新 open_positions_strat2_*.csv（你的 AI 持倉明細）
-
-      # Step 2: 執行 daily_ops_盤後 (基於最新持倉判斷)
-      python daily_ops_v4_fixed_lstm.py
-      
-      
-      ☀️ 隔天盤中（開盤後任意時間）
-      
-      # Step 3: 執行 daily_ops_盤中 (基於最新持倉判斷)
-      python daily_ops_v4_intraday_fixed_lstm.py -i
-      
-      這會：
-      抓取盤中即時價格
-      用相同的固定 LSTM 計算預測
-      顯示每筆 AI 持倉的即時報酬率
-      告訴你今天是否應該買/賣
-
-      Fixed LSTM 盤中腳本保留了完全相同的功能：
-      # 方式 1: 互動式選擇 (用方向鍵)
-      python daily_ops_v4_intraday_fixed_lstm.py -i
-      # 方式 2: 直接指定起始日
-      python daily_ops_v4_intraday_fixed_lstm.py --backtest-start 2025-01-02
-      # 方式 3: 使用最新 (預設)
-      python daily_ops_v4_intraday_fixed_lstm.py
-
-      NOTE: ✅ 已實作！現在 daily_ops_v4_intraday_fixed_lstm.py 會自動匹配對應的 LSTM 模型：選擇哪個 CSV，就會自動載入對應日期的 Fixed LSTM 模型！這樣你可以並行測試不同時期的策略，每個都使用各自最適合的模型。
-
-
-
-    
+-只重新訓練sell agent的方式
+# 只刪除 Sell Agent 模型
+Remove-Item -Path ".\models_hybrid_v4\ppo_sell_base.zip" -ErrorAction SilentlyContinue
+Remove-Item -Path ".\models_hybrid_v4\ppo_sell_twii_final.zip" -ErrorAction SilentlyContinue
+# 執行訓練（會自動跳過已存在的 Buy Agent）
+python train_v4_models.py    
 
 ## ✨ 核心特色 (Key Features)
 

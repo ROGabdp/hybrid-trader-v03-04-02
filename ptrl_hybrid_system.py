@@ -18,6 +18,7 @@ import os
 import sys
 import pickle
 import psutil
+import shutil
 
 # Windows 終端機 UTF-8 編碼設定（解決 emoji 顯示問題）
 if sys.platform == 'win32':
@@ -660,7 +661,8 @@ class SellEnvHybrid(gym.Env):
 # 5. Pre-training 流程
 # =============================================================================
 def run_pretraining(train_data: dict, models_path: str, device: str,
-                    pretrain_buy_steps: int = 1_000_000, pretrain_sell_steps: int = 500_000):
+                    pretrain_buy_steps: int = 1_000_000, pretrain_sell_steps: int = 500_000,
+                    train_buy: bool = True, train_sell: bool = True):
     """執行預訓練 (含 TensorBoard 日誌記錄)
     
     Args:
@@ -669,13 +671,16 @@ def run_pretraining(train_data: dict, models_path: str, device: str,
         device: 運算裝置 (cuda/cpu)
         pretrain_buy_steps: Buy Agent 預訓練步數 (default: 1,000,000)
         pretrain_sell_steps: Sell Agent 預訓練步數 (default: 500,000)
+        train_buy: 是否訓練 Buy Agent (default: True)
+        train_sell: 是否訓練 Sell Agent (default: True)
     """
     print(f"\n[System] Starting Pre-training with {len(train_data)} indices...")
     
     # 建立日誌目錄
     tensorboard_log = "./tensorboard_logs/"
     os.makedirs(tensorboard_log, exist_ok=True)
-    os.makedirs(os.path.join(models_path, "best_pretrain"), exist_ok=True)
+    os.makedirs(os.path.join(models_path, "best_pretrain", "buy"), exist_ok=True)
+    os.makedirs(os.path.join(models_path, "best_pretrain", "sell"), exist_ok=True)
     
     n_envs = min(8, max(1, multiprocessing.cpu_count() - 1))
     print(f"[System] CPU cores: {multiprocessing.cpu_count()}, Using {n_envs} envs")
@@ -688,60 +693,83 @@ def run_pretraining(train_data: dict, models_path: str, device: str,
         "device": device,
         "policy_kwargs": dict(net_arch=[64, 64, 64]), 
         "verbose": 1,
-        "tensorboard_log": tensorboard_log  # 啟用 TensorBoard
+        "tensorboard_log": tensorboard_log
     }
+    
+    buy_model = None
+    sell_model = None
     
     # =========================================================================
     # Buy Agent
     # =========================================================================
-    print("\n🛒 Training Buy Agent (Base Model)...")
-    buy_env = make_vec_env(BuyEnvHybrid, n_envs=n_envs, vec_env_cls=SubprocVecEnv,
-                           env_kwargs={'data_dict': train_data, 'is_training': True})
-    
-    # 建立評估環境
-    eval_buy_env = make_vec_env(BuyEnvHybrid, n_envs=1, vec_env_cls=DummyVecEnv,
-                                env_kwargs={'data_dict': train_data, 'is_training': False})
-    
-    buy_model = PPO("MlpPolicy", buy_env, **ppo_params)
-    
-    # Callbacks
-    buy_callbacks = CallbackList([
-        CheckpointCallback(save_freq=80000, save_path=models_path, name_prefix="ppo_buy_base"),
-        EvalCallback(eval_buy_env, best_model_save_path=os.path.join(models_path, "best_pretrain", "buy"),
-                     log_path="./logs/", eval_freq=10000, n_eval_episodes=50, 
-                     deterministic=True)
-    ])
-    
-    buy_model.learn(total_timesteps=pretrain_buy_steps, callback=buy_callbacks, tb_log_name="buy_pretrain")
-    buy_model.save(os.path.join(models_path, "ppo_buy_base"))
-    buy_env.close()
-    eval_buy_env.close()
+    if train_buy:
+        print("\n🛒 Training Buy Agent (Base Model)...")
+        buy_env = make_vec_env(BuyEnvHybrid, n_envs=n_envs, vec_env_cls=SubprocVecEnv,
+                               env_kwargs={'data_dict': train_data, 'is_training': True})
+        
+        eval_buy_env = make_vec_env(BuyEnvHybrid, n_envs=1, vec_env_cls=DummyVecEnv,
+                                    env_kwargs={'data_dict': train_data, 'is_training': False})
+        
+        buy_model = PPO("MlpPolicy", buy_env, **ppo_params)
+        
+        buy_callbacks = CallbackList([
+            CheckpointCallback(save_freq=80000, save_path=models_path, name_prefix="ppo_buy_base"),
+            EvalCallback(eval_buy_env, best_model_save_path=os.path.join(models_path, "best_pretrain", "buy"),
+                         log_path="./logs/", eval_freq=10000, n_eval_episodes=50, deterministic=True)
+        ])
+        
+        buy_model.learn(total_timesteps=pretrain_buy_steps, callback=buy_callbacks, tb_log_name="buy_pretrain")
+        
+        # 儲存最佳模型為 base (優先使用 best_model)
+        best_buy_path = os.path.join(models_path, "best_pretrain", "buy", "best_model.zip")
+        buy_base_save_path = os.path.join(models_path, "ppo_buy_base.zip")
+        if os.path.exists(best_buy_path):
+            shutil.copy(best_buy_path, buy_base_save_path)
+            print(f"[Pretrain] Buy Agent: Copied best_model as ppo_buy_base.zip")
+        else:
+            buy_model.save(os.path.join(models_path, "ppo_buy_base"))
+            print(f"[Pretrain] Buy Agent: Saved final model (no best_model found)")
+        
+        buy_env.close()
+        eval_buy_env.close()
+    else:
+        print("\n[Skip] Buy Agent pre-training (train_buy=False)")
     
     # =========================================================================
     # Sell Agent
     # =========================================================================
-    print("\n💰 Training Sell Agent (Base Model)...")
-    sell_env = make_vec_env(SellEnvHybrid, n_envs=n_envs, vec_env_cls=SubprocVecEnv,
-                            env_kwargs={'data_dict': train_data})
-    
-    # 建立評估環境
-    eval_sell_env = make_vec_env(SellEnvHybrid, n_envs=1, vec_env_cls=DummyVecEnv,
-                                 env_kwargs={'data_dict': train_data})
-    
-    sell_model = PPO("MlpPolicy", sell_env, **ppo_params)
-    
-    # Callbacks
-    sell_callbacks = CallbackList([
-        CheckpointCallback(save_freq=80000, save_path=models_path, name_prefix="ppo_sell_base"),
-        EvalCallback(eval_sell_env, best_model_save_path=os.path.join(models_path, "best_pretrain"),
-                     log_path="./logs/", eval_freq=10000, n_eval_episodes=50, 
-                     deterministic=True)
-    ])
-    
-    sell_model.learn(total_timesteps=pretrain_sell_steps, callback=sell_callbacks, tb_log_name="sell_pretrain")
-    sell_model.save(os.path.join(models_path, "ppo_sell_base"))
-    sell_env.close()
-    eval_sell_env.close()
+    if train_sell:
+        print("\n💰 Training Sell Agent (Base Model)...")
+        sell_env = make_vec_env(SellEnvHybrid, n_envs=n_envs, vec_env_cls=SubprocVecEnv,
+                                env_kwargs={'data_dict': train_data})
+        
+        eval_sell_env = make_vec_env(SellEnvHybrid, n_envs=1, vec_env_cls=DummyVecEnv,
+                                     env_kwargs={'data_dict': train_data})
+        
+        sell_model = PPO("MlpPolicy", sell_env, **ppo_params)
+        
+        sell_callbacks = CallbackList([
+            CheckpointCallback(save_freq=80000, save_path=models_path, name_prefix="ppo_sell_base"),
+            EvalCallback(eval_sell_env, best_model_save_path=os.path.join(models_path, "best_pretrain", "sell"),
+                         log_path="./logs/", eval_freq=10000, n_eval_episodes=50, deterministic=True)
+        ])
+        
+        sell_model.learn(total_timesteps=pretrain_sell_steps, callback=sell_callbacks, tb_log_name="sell_pretrain")
+        
+        # 儲存最佳模型為 base (優先使用 best_model)
+        best_sell_path = os.path.join(models_path, "best_pretrain", "sell", "best_model.zip")
+        sell_base_save_path = os.path.join(models_path, "ppo_sell_base.zip")
+        if os.path.exists(best_sell_path):
+            shutil.copy(best_sell_path, sell_base_save_path)
+            print(f"[Pretrain] Sell Agent: Copied best_model as ppo_sell_base.zip")
+        else:
+            sell_model.save(os.path.join(models_path, "ppo_sell_base"))
+            print(f"[Pretrain] Sell Agent: Saved final model (no best_model found)")
+        
+        sell_env.close()
+        eval_sell_env.close()
+    else:
+        print("\n[Skip] Sell Agent pre-training (train_sell=False)")
     
     print("[System] Pre-training Completed.")
     return buy_model, sell_model
@@ -826,9 +854,16 @@ def run_finetuning(twii_finetune_data: dict, twii_eval_data: dict, models_path: 
         buy_model.learn(total_timesteps=finetune_buy_steps, callback=buy_callbacks, 
                         tb_log_name="buy_finetune", reset_num_timesteps=False)
         
-        buy_final_path = os.path.join(models_path, "ppo_buy_twii_final")
-        buy_model.save(buy_final_path)
-        print(f"[Fine-tune] Buy Agent saved to: {buy_final_path}")
+        # 儲存最佳模型為 final (優先使用 best_model)
+        best_buy_path = os.path.join(models_path, "best_tuned", "buy", "best_model.zip")
+        buy_final_save_path = os.path.join(models_path, "ppo_buy_twii_final.zip")
+        if os.path.exists(best_buy_path):
+            shutil.copy(best_buy_path, buy_final_save_path)
+            print(f"[Fine-tune] Buy Agent: Copied best_model as ppo_buy_twii_final.zip")
+        else:
+            buy_model.save(os.path.join(models_path, "ppo_buy_twii_final"))
+            print(f"[Fine-tune] Buy Agent: Saved final model (no best_model found)")
+        
         buy_env.close()
         eval_buy_env.close()
     else:
@@ -865,9 +900,16 @@ def run_finetuning(twii_finetune_data: dict, twii_eval_data: dict, models_path: 
         sell_model.learn(total_timesteps=finetune_sell_steps, callback=sell_callbacks, 
                          tb_log_name="sell_finetune", reset_num_timesteps=False)
         
-        sell_final_path = os.path.join(models_path, "ppo_sell_twii_final")
-        sell_model.save(sell_final_path)
-        print(f"[Fine-tune] Sell Agent saved to: {sell_final_path}")
+        # 儲存最佳模型為 final (優先使用 best_model)
+        best_sell_path = os.path.join(models_path, "best_tuned", "sell", "best_model.zip")
+        sell_final_save_path = os.path.join(models_path, "ppo_sell_twii_final.zip")
+        if os.path.exists(best_sell_path):
+            shutil.copy(best_sell_path, sell_final_save_path)
+            print(f"[Fine-tune] Sell Agent: Copied best_model as ppo_sell_twii_final.zip")
+        else:
+            sell_model.save(os.path.join(models_path, "ppo_sell_twii_final"))
+            print(f"[Fine-tune] Sell Agent: Saved final model (no best_model found)")
+        
         sell_env.close()
         eval_sell_env.close()
     else:

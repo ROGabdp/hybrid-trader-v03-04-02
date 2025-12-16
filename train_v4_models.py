@@ -42,8 +42,8 @@ SPLIT_DATE = '2023-01-01'
 
 # V4: 訓練步數設定
 PRETRAIN_BUY_STEPS = 1_000_000
-PRETRAIN_SELL_STEPS = 500_000
-FINETUNE_BUY_STEPS = 1_000_000
+PRETRAIN_SELL_STEPS = 1_000_000
+FINETUNE_BUY_STEPS = 500_000
 FINETUNE_SELL_STEPS = 500_000
 
 
@@ -68,12 +68,12 @@ def clear_cache():
     print("[Done] Cache cleared")
 
 
-def run_pretraining():
+def run_pretraining(train_buy=True, train_sell=True):
     print("\n" + "=" * 60)
     print("Step B: Pre-training")
     print("=" * 60)
-    print(f"  Buy Agent:  {PRETRAIN_BUY_STEPS:,} steps")
-    print(f"  Sell Agent: {PRETRAIN_SELL_STEPS:,} steps")
+    print(f"  Buy Agent:  {PRETRAIN_BUY_STEPS:,} steps {'✅' if train_buy else '⏭️ SKIP'}")
+    print(f"  Sell Agent: {PRETRAIN_SELL_STEPS:,} steps {'✅' if train_sell else '⏭️ SKIP'}")
     print(f"  Output:     {V4_MODELS_PATH}")
     print("=" * 60)
     
@@ -106,7 +106,9 @@ def run_pretraining():
     print(f"\n[Training] Starting pre-training...")
     hybrid.run_pretraining(train_data, V4_MODELS_PATH, device,
                             pretrain_buy_steps=PRETRAIN_BUY_STEPS,
-                            pretrain_sell_steps=PRETRAIN_SELL_STEPS)
+                            pretrain_sell_steps=PRETRAIN_SELL_STEPS,
+                            train_buy=train_buy,
+                            train_sell=train_sell)
     print(f"\n[Done] Pre-training complete! Saved to {V4_MODELS_PATH}/")
 
 
@@ -178,10 +180,18 @@ def print_next_steps():
 """)
 
 
-def check_pretrain_complete():
+def check_pretrain_buy_complete():
     buy_base = os.path.join(V4_MODELS_PATH, "ppo_buy_base.zip")
+    return os.path.exists(buy_base)
+
+
+def check_pretrain_sell_complete():
     sell_base = os.path.join(V4_MODELS_PATH, "ppo_sell_base.zip")
-    return os.path.exists(buy_base) and os.path.exists(sell_base)
+    return os.path.exists(sell_base)
+
+
+def check_pretrain_complete():
+    return check_pretrain_buy_complete() and check_pretrain_sell_complete()
 
 
 def check_finetune_buy_complete():
@@ -259,14 +269,23 @@ def main():
     else:
         print("\n[Skip] Step A: Cache clearing (pre-training done)")
     
-    if check_pretrain_complete():
+    # 獨立檢查 Buy 和 Sell Base 模型
+    buy_base_done = check_pretrain_buy_complete()
+    sell_base_done = check_pretrain_sell_complete()
+    
+    if buy_base_done and sell_base_done:
         print("\n" + "=" * 60)
         print("[Skip] Step B: Pre-training complete")
-        print(f"   Buy Base:  {V4_MODELS_PATH}/ppo_buy_base.zip")
-        print(f"   Sell Base: {V4_MODELS_PATH}/ppo_sell_base.zip")
+        print(f"   Buy Base:  {V4_MODELS_PATH}/ppo_buy_base.zip ✅")
+        print(f"   Sell Base: {V4_MODELS_PATH}/ppo_sell_base.zip ✅")
         print("=" * 60)
     else:
-        run_pretraining()
+        print("\n" + "=" * 60)
+        print("[Check] Step B: Pre-training status")
+        print(f"   Buy Base:  {'✅ Done' if buy_base_done else '❌ Missing'}")
+        print(f"   Sell Base: {'✅ Done' if sell_base_done else '❌ Missing'}")
+        print("=" * 60)
+        run_pretraining(train_buy=not buy_base_done, train_sell=not sell_base_done)
     
     # 獨立檢查 Buy 和 Sell Agent
     buy_done = check_finetune_buy_complete()
